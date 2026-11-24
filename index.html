@@ -53,7 +53,7 @@
 
     <section id="quickstart">
       <h2>Install &amp; Run Locally</h2>
-      <pre>cargo install --git https://github.com
+      <pre>cargo install --git https://github.com/oceans-niagara/guardrails
 
 guardrails check --config guardrails.toml --format sarif
 guardrails mcp</pre>
@@ -101,7 +101,7 @@ guardrails mcp</pre>
   </div>
 
     <script>
-    const WORKER_CLAIM_URL = "https://workers.dev";
+    const WORKER_CLAIM_URL = "https://guardrails-license-webhook.linkguard-api.workers.dev/claim";
     const sessionId = new URLSearchParams(window.location.search).get("session_id");
 
     if (sessionId) {
