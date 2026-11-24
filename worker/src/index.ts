@@ -6,75 +6,110 @@ interface Env {
   FROM_EMAIL?: string;
 }
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "https://oceansniagara.com",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    try {
-      const url = new URL(request.url);
-      if (request.method !== "POST" || url.pathname !== "/webhook") {
-        return new Response("Not found", { status: 404 });
-      }
+    const url = new URL(request.url);
 
-      const sigHeader = request.headers.get("stripe-signature");
-      if (!sigHeader) {
-        return new Response("Missing Stripe-Signature", { status: 400 });
-      }
-
-      const rawBody = await request.text();
-      const valid = await verifyStripeSignature(rawBody, sigHeader, env.STRIPE_WEBHOOK_SECRET);
-      if (!valid) {
-        return new Response("Invalid signature", { status: 401 });
-      }
-
-      const event = JSON.parse(rawBody) as {
-        id: string;
-        type: string;
-        data: { object: Record<string, any> };
-      };
-
-      if (event.type !== "checkout.session.completed") {
-        return new Response("Ignored event", { status: 200 });
-      }
-
-      const session = event.data.object;
-      const email: string | undefined = session.customer_details?.email ?? session.customer_email;
-      if (!email) {
-        return new Response("Missing customer email", { status: 400 });
-      }
-
-      const org: string = session.customer_details?.name || email;
-      const tier = await resolveTier(session, env.STRIPE_SECRET_KEY);
-
-      const expiresUnix = session.mode === "subscription"
-        ? Math.floor(Date.now() / 1000) + 366 * 24 * 60 * 60
-        : 0;
-
-      const licenseKey = await signLicense({ org, tier, expires_unix: expiresUnix }, env.ED25519_JWK);
-      await sendLicenseEmail(email, org, tier, licenseKey, event.id, env);
-
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    } catch (err: any) {
-      return new Response(`Worker Error: ${err?.message || String(err)}`, { status: 500 });
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: CORS_HEADERS });
     }
+
+    // 1. Post-checkout browser lookup (?session_id=cs_...)
+    if (request.method === "GET" && url.pathname === "/claim") {
+      const sessionId = url.searchParams.get("session_id");
+      if (!sessionId) {
+        return jsonResponse({ error: "Missing session_id" }, 400);
+      }
+
+      const resp = await fetch(
+        `https://stripe.com{encodeURIComponent(sessionId)}`,
+        { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } }
+      );
+      if (!resp.ok) {
+        return jsonResponse({ error: "Invalid or expired checkout session" }, 404);
+      }
+
+      const session = (await resp.json()) as Record<string, any>;
+      if (session.payment_status !== "paid" && session.status !== "complete") {
+        return jsonResponse({ error: "Payment not completed yet" }, 402);
+      }
+
+      const email: string | undefined = session.customer_details?.email ?? session.customer_email;
+      const org: string = session.customer_details?.name || email || "Customer";
+      const tier = await resolveTier(session, env.STRIPE_SECRET_KEY);
+      const license = await signLicense({ org, tier, expires_unix: 0 }, env.ED25519_JWK);
+
+      return jsonResponse({ ok: true, tier, holder: org, license }, 200);
+    }
+
+    // 2. Stripe Webhook (/webhook)
+    if (request.method !== "POST" || url.pathname !== "/webhook") {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const sigHeader = request.headers.get("stripe-signature");
+    if (!sigHeader) {
+      return new Response("Missing Stripe-Signature", { status: 400 });
+    }
+
+    const rawBody = await request.text();
+    const valid = await verifyStripeSignature(rawBody, sigHeader, env.STRIPE_WEBHOOK_SECRET);
+    if (!valid) {
+      return new Response("Invalid signature", { status: 401 });
+    }
+
+    const event = JSON.parse(rawBody) as {
+      id: string;
+      type: string;
+      data: { object: Record<string, any> };
+    };
+
+    if (event.type !== "checkout.session.completed") {
+      return new Response("Ignored event", { status: 200 });
+    }
+
+    const session = event.data.object;
+    const email: string | undefined = session.customer_details?.email ?? session.customer_email;
+    if (!email) {
+      return new Response("Missing customer email", { status: 400 });
+    }
+
+    const org: string = session.customer_details?.name || email;
+    const tier = await resolveTier(session, env.STRIPE_SECRET_KEY);
+    const licenseKey = await signLicense({ org, tier, expires_unix: 0 }, env.ED25519_JWK);
+
+    await sendLicenseEmail(email, org, tier, licenseKey, event.id, env);
+
+    return jsonResponse({ ok: true }, 200);
   },
 };
+
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+  });
+}
 
 async function resolveTier(session: Record<string, any>, stripeKey: string): Promise<string> {
   if (session.metadata?.tier) {
     return String(session.metadata.tier);
   }
-  // Product metadata isn't copied onto Checkout Sessions automatically; fetch expanded line items
   const resp = await fetch(
-    `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(session.id)}/line_items?expand[]=data.price.product`,
+    `https://stripe.com{encodeURIComponent(session.id)}/line_items?expand[]=data.price.product`,
     {
       headers: { Authorization: `Bearer ${stripeKey}` },
       signal: AbortSignal.timeout(10_000),
     }
   );
   if (!resp.ok) {
-    throw new Error(`Stripe line_items fetch failed: ${resp.status}`);
+    return "pro";
   }
   const data = (await resp.json()) as { data?: Array<{ price?: { product?: { metadata?: { tier?: string } } } }> };
   return data.data?.[0]?.price?.product?.metadata?.tier ?? "pro";
@@ -100,7 +135,49 @@ async function sendLicenseEmail(
   env: Env
 ): Promise<void> {
   const from = env.FROM_EMAIL ?? "Guardrails <licenses@oceansniagara.com>";
-  const resp = await fetch("https://api.resend.com/emails", {
+  const tierLabel = tier.toUpperCase();
+
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;color:#111;line-height:1.6;">
+      <h2 style="margin-bottom:4px;">Guardrails ${tierLabel} License</h2>
+      <p style="color:#555;margin-top:0;">Issued to <strong>${escapeHtml(org)}</strong> &bull; Perpetual offline license</p>
+      <p>Thanks for purchasing Guardrails ${tierLabel}. Save your offline Ed25519 license key below:</p>
+      <div style="background:#f7f7f7;border:1px solid #111;border-radius:5px;padding:12px 14px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;word-break:break-all;margin:16px 0;">
+        ${escapeHtml(licenseKey)}
+      </div>
+      <h3 style="font-size:15px;margin-bottom:6px;">Quickstart</h3>
+      <pre style="background:#f7f7f7;border:1px solid #e5e5e5;border-radius:5px;padding:12px 14px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;overflow-x:auto;"># macOS / Linux
+export GUARDRAILS_LICENSE_KEY="${escapeHtml(licenseKey)}"
+guardrails license-check
+
+# Windows (PowerShell)
+$env:GUARDRAILS_LICENSE_KEY="${escapeHtml(licenseKey)}"
+guardrails license-check</pre>
+      <p style="font-size:13px;color:#666;margin-top:24px;border-top:1px solid #e5e5e5;padding-top:12px;">
+        Oceans Niagara, LLC &bull; Need help? Reply to this email or contact <a href="mailto:connect@oceansniagara.com" style="color:#111;">connect@oceansniagara.com</a>
+      </p>
+    </div>
+  `;
+
+  const text = [
+    `Guardrails ${tierLabel} License`,
+    `Issued to: ${org} (Perpetual offline license)`,
+    "",
+    "Your offline Ed25519 license key:",
+    licenseKey,
+    "",
+    "Quickstart (macOS / Linux):",
+    `  export GUARDRAILS_LICENSE_KEY="${licenseKey}"`,
+    "  guardrails license-check",
+    "",
+    "Quickstart (Windows PowerShell):",
+    `  $env:GUARDRAILS_LICENSE_KEY="${licenseKey}"`,
+    "  guardrails license-check",
+    "",
+    "Questions? Contact connect@oceansniagara.com",
+  ].join("\n");
+
+  const resp = await fetch("https://resend.com", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.RESEND_API_KEY}`,
@@ -110,19 +187,10 @@ async function sendLicenseEmail(
     body: JSON.stringify({
       from,
       to: [to],
-      subject: `Your Guardrails (${tier}) License Key`,
-      text: [
-        `Hi ${org},`,
-        "",
-        `Thanks for purchasing Guardrails (${tier}). Here is your offline Ed25519 license key:`,
-        "",
-        licenseKey,
-        "",
-        "Quickstart:",
-        "  export GUARDRAILS_LICENSE_KEY=\"" + licenseKey + "\"",
-        "  guardrails license-check",
-        "  guardrails resilience",
-      ].join("\n"),
+      reply_to: "connect@oceansniagara.com",
+      subject: `Your Guardrails ${tierLabel} License Key`,
+      html,
+      text,
     }),
     signal: AbortSignal.timeout(10_000),
   });
@@ -131,6 +199,14 @@ async function sendLicenseEmail(
     const body = await resp.text();
     throw new Error(`Resend failed (${resp.status}): ${body}`);
   }
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 async function verifyStripeSignature(rawBody: string, header: string, secret: string): Promise<boolean> {

@@ -14,22 +14,25 @@
       <nav>
         <a href="#quickstart">Quickstart</a>
         <a href="#pricing">Pricing</a>
-        <a href="https://github.com/Oceans-Niagara/guardrails">GitHub</a>
+        <a href="https://github.com">GitHub</a>
       </nav>
     </header>
 
-    <!-- Post-Checkout Confirmation Banner (triggered if Stripe redirects with ?checkout=success) -->
-    <section id="success-box" class="box hidden">
-      <h3>Payment Confirmed — Check Your Email</h3>
-      <p style="margin-bottom: 8px;">
-        Your offline Ed25519 license key has been sent to the email address you entered at checkout from <code>licenses@oceansniagara.com</code>.
-      </p>
-      <pre>export GUARDRAILS_LICENSE_KEY="paste_your_key_here"
-guardrails license-check
-guardrails resilience</pre>
-      <p class="muted" style="margin-top: 10px; margin-bottom: 0;">
-        Don't see it within a minute? Check spam or contact <a href="mailto:connect@oceansniagara.com">connect@oceansniagara.com</a>.
-      </p>
+    <!-- Post-Checkout Stripe License Fulfillment -->
+        <section id="claim-box" class="box hidden">
+      <h3 id="claim-status">Verifying Stripe checkout session...</h3>
+      <p id="claim-meta" class="muted" style="margin-bottom:0;"></p>
+      <div id="claim-details" class="hidden">
+        <div id="claim-token" class="token"></div>
+        <div class="actions" style="margin-top:0; margin-bottom:12px;">
+          <button id="copy-btn" type="button" class="btn btn-solid">Copy License Key</button>
+          <button id="dl-btn" type="button" class="btn">Download guardrails.lic</button>
+        </div>
+        <pre id="claim-activate"></pre>
+        <p class="muted" style="margin-top:10px; margin-bottom:0;">
+          A backup copy was also emailed to you. Questions: <a href="mailto:connect@oceansniagara.com">connect@oceansniagara.com</a>
+        </p>
+      </div>
     </section>
 
     <section>
@@ -44,13 +47,13 @@ guardrails resilience</pre>
       <div class="actions">
         <a class="btn btn-solid" href="#quickstart">Install &amp; Quickstart</a>
         <a class="btn" href="#pricing">Get Pro License ($19.99)</a>
-        <a class="btn" href="https://github.com/Oceans-Niagara/guardrails">Source on GitHub</a>
+        <a class="btn" href="https://github.com">Source on GitHub</a>
       </div>
     </section>
 
     <section id="quickstart">
       <h2>Install &amp; Run Locally</h2>
-      <pre>cargo install --git https://github.com/Oceans-Niagara/guardrails
+      <pre>cargo install --git https://github.com
 
 guardrails check --config guardrails.toml --format sarif
 guardrails mcp</pre>
@@ -86,7 +89,7 @@ guardrails mcp</pre>
               <li>Commercial &amp; CI pipeline usage</li>
             </ul>
           </div>
-          <a class="btn btn-solid" href="https://buy.stripe.com/28E14of587Oqds9aI78N202" style="text-align:center;">Buy Pro</a>
+          <a class="btn btn-solid" href="https://stripe.com" style="text-align:center;">Buy Pro</a>
         </div>
       </div>
     </section>
@@ -97,10 +100,50 @@ guardrails mcp</pre>
     </footer>
   </div>
 
-  <script>
-    if (new URLSearchParams(window.location.search).get("checkout") === "success") {
-      document.getElementById("success-box").classList.remove("hidden");
+    <script>
+    const WORKER_CLAIM_URL = "https://workers.dev";
+    const sessionId = new URLSearchParams(window.location.search).get("session_id");
+
+    if (sessionId) {
+      const box = document.getElementById("claim-box");
+      const statusEl = document.getElementById("claim-status");
+      const metaEl = document.getElementById("claim-meta");
+      const detailsEl = document.getElementById("claim-details");
+      box.classList.remove("hidden");
+
+      fetch(`${WORKER_CLAIM_URL}?session_id=${encodeURIComponent(sessionId)}`)
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+          return data;
+        })
+        .then((data) => {
+          statusEl.textContent = `License Ready — Guardrails ${String(data.tier || "pro").toUpperCase()}`;
+          metaEl.textContent = `Issued to ${data.holder || "customer"} • Perpetual offline license`;
+          document.getElementById("claim-token").textContent = data.license;
+          document.getElementById("claim-activate").textContent =
+            `# macOS / Linux:\nexport GUARDRAILS_LICENSE_KEY="${data.license}"\nguardrails license-check\n\n` +
+            `# Windows (PowerShell):\n$env:GUARDRAILS_LICENSE_KEY="${data.license}"\nguardrails license-check`;
+
+          document.getElementById("copy-btn").addEventListener("click", async () => {
+            await navigator.clipboard.writeText(data.license);
+            document.getElementById("copy-btn").textContent = "Copied!";
+          });
+          document.getElementById("dl-btn").addEventListener("click", () => {
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(new Blob([data.license + "\n"], { type: "text/plain" }));
+            a.download = "guardrails.lic";
+            a.click();
+          });
+          detailsEl.classList.remove("hidden");
+        })
+        .catch((err) => {
+          statusEl.textContent = "License Lookup Delayed";
+          metaEl.textContent = `${err.message} — check your email from licenses@oceansniagara.com or refresh.`;
+        });
     }
   </script>
+
 </body>
 </html>
+
