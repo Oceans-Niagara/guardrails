@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Guardrails — Deterministic AI &amp; CI Guardrail Binary</title>
+  <link rel="stylesheet" href="./style.css?v=1" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <a class="brand" href="./">Guardrails</a>
+      <a href="/" style="font-size: 0.9rem; opacity: 0.65; text-decoration: none; color: inherit;">Oceans Niagara, LLC</a>
+      <nav>
+        <a href="#quickstart">Quickstart</a>
+        <a href="#pricing">Pricing</a>
+        <a href="https://github.com/Oceans-Niagara/slopguard">GitHub</a>
+      </nav>
+    </header>
+
+    <!-- Post-Checkout Confirmation Banner (triggered if Stripe redirects with ?checkout=success) -->
+    <section id="success-box" class="box hidden">
+      <h3>Payment Confirmed — Check Your Email</h3>
+      <p style="margin-bottom: 8px;">
+        Your offline Ed25519 license key has been sent to the email address you entered at checkout from <code>licenses@oceansniagara.com</code>.
+      </p>
+      <pre>export GUARDRAILS_LICENSE_KEY="paste_your_key_here"
+guardrails license-check
+guardrails resilience</pre>
+      <p class="muted" style="margin-top: 10px; margin-bottom: 0;">
+        Don't see it within a minute? Check spam or contact <a href="mailto:connect@oceansniagara.com">connect@oceansniagara.com</a>.
+      </p>
+    </section>
+
+    <section>
+      <h1>Deterministic guardrails for AI-generated code and CI pipelines.</h1>
+      <p>
+        <strong>Catch fragile code, regressions, and resilience gaps before they ship.</strong> Guardrails runs fast, deterministic checks locally on your machine, in CI, or directly inside your AI coding tools via MCP—with zero LLM dependency and zero code leaving your environment.
+      </p>
+      <p>
+        Built as a single offline-first Rust binary, Guardrails combines local AST analysis, configurable quality gates (<code>guardrails.toml</code>), SARIF reporting, and resilience testing in one tool.
+      </p>
+
+      <div class="actions">
+        <a class="btn btn-solid" href="#quickstart">Install &amp; Quickstart</a>
+        <a class="btn" href="#pricing">Get Pro License ($19.99)</a>
+        <a class="btn" href="https://github.com/Oceans-Niagara/slopguard">Source on GitHub</a>
+      </div>
+    </section>
+
+    <section id="quickstart">
+      <h2>Install &amp; Run Locally</h2>
+      <pre>cargo install --git https://github.com/Oceans-Niagara/slopguard
+
+guardrails check --config guardrails.toml --format sarif
+guardrails mcp</pre>
+    </section>
+
+    <section id="pricing">
+      <h2>Licensing</h2>
+      <p class="muted">Perpetual offline Ed25519-signed keys verified locally with zero network calls.</p>
+
+      <div class="tier-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+        <div class="tier">
+          <div>
+            <h3>Free</h3>
+            <div class="price">$0 <span>Free Forever</span></div>
+            <ul>
+              <li>Core CLI &amp; stdio MCP server</li>
+              <li>Local AST rules &amp; quality gates</li>
+              <li><code>guardrails.toml</code> &amp; SARIF output</li>
+              <li>Offline verification with zero telemetry</li>
+            </ul>
+          </div>
+          <a class="btn" href="#quickstart" style="text-align:center;">Get Started</a>
+        </div>
+
+        <div class="tier tier-pro">
+          <div>
+            <h3>Pro</h3>
+            <div class="price">$19.99 <span>one-time &bull; perpetual</span></div>
+            <ul>
+              <li>Everything in Free</li>
+              <li>Offline Ed25519 license key (instant email delivery)</li>
+              <li>Full <code>guardrails resilience</code> &amp; chaos testing suite</li>
+              <li>Commercial &amp; CI pipeline usage</li>
+            </ul>
+          </div>
+          <a class="btn btn-solid" href="https://buy.stripe.com/28E14of587Oqds9aI78N202L" style="text-align:center;">Buy Pro</a>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <span>&copy; 2026 Oceans Niagara, LLC &bull; Guardrails</span>
+      <span><a href="mailto:connect@oceansniagara.com">connect@oceansniagara.com</a></span>
+    </footer>
+  </div>
+
+  <script>
+    if (new URLSearchParams(window.location.search).get("checkout") === "success") {
+      document.getElementById("success-box").classList.remove("hidden");
+    }
+  </script>
+</body>
+</html>
