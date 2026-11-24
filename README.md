@@ -1,4 +1,4 @@
-# Guardrails
+# Guardrails (aka SlopGuard)
 
 **Deterministic AI & CI guardrail binary.**
 
@@ -8,11 +8,11 @@ Guardrails is an offline-first Rust CLI and MCP server developed by Oceans Niaga
 
 ## Install & Run Locally
 
-- **Prebuilt Binaries (Windows, macOS, Linux):** Download the latest executable from [GitHub Releases](https://github.com).
+- **Prebuilt Binaries (Windows, macOS, Linux):** Download the latest executable from [GitHub Releases](https://github.com/oceans-niagara/guardrails/releases).
 
 ```bash
 # Or build from source with Cargo
-cargo install --git https://github.com
+cargo install --git https://github.com/oceans-niagara/guardrails
 
 guardrails check --config guardrails.toml --format sarif
 guardrails mcp
