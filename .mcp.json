@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "guardrails": {
+      "args": [
+        "mcp",
+        "--workspace",
+        "."
+      ],
+      "command": "guardrails"
+    }
+  }
+}

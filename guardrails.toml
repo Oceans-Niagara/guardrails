@@ -1,0 +1,23 @@
+[project]
+name = "billing-api"
+fail_on = "error" # "error" | "warning"
+
+[ast]
+enabled = true
+exclude = ["target/**", "node_modules/**", ".venv/**"]
+
+[gate]
+rust = true
+typescript = true
+python = true
+
+[resilience]
+seed = 42
+drop_rate = 0.02
+rate_429 = 0.05
+max_jitter_ms = 150
+openapi_spec = "openapi.yaml"
+
+[sync]
+agents_md = true
+mcp_json = true
