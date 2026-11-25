@@ -225,13 +225,11 @@ pub fn detect_workspace(workspace: &Path) -> DetectedWorkspace {
             "cargo.toml" => has_rust = true,
             "tsconfig.json" => has_ts = true,
             "pyproject.toml" | "requirements.txt" | "setup.py" => has_py = true,
-            "openapi.yaml" | "openapi.yml" | "openapi.json" => {
-                if openapi_spec.is_none() {
-                    openapi_spec = path
-                        .strip_prefix(workspace)
-                        .ok()
-                        .map(|p| p.to_string_lossy().replace('\\', "/"));
-                }
+            "openapi.yaml" | "openapi.yml" | "openapi.json" if openapi_spec.is_none() => {
+                openapi_spec = path
+                    .strip_prefix(workspace)
+                    .ok()
+                    .map(|p| p.to_string_lossy().replace('\\', "/"));
             }
             _ => {}
         }

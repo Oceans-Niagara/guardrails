@@ -109,7 +109,6 @@ async fn forward_http(
 }
 
 /// L4 TCP / WebSocket chaos proxy (drops connections or injects per-chunk jitter).
-
 pub async fn start_tcp_chaos_proxy(listen: SocketAddr, cfg: ChaosConfig) -> anyhow::Result<()> {
     let listener = TcpListener::bind(listen).await?;
     serve_tcp_chaos_proxy(listener, cfg).await
