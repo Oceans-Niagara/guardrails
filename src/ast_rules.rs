@@ -1,6 +1,6 @@
-use ast_grep_core::{Doc, Language, Node, Pattern};
 use crate::sarif::{Finding, Severity};
-use ast_grep_language::SupportLang;
+use ast_grep_core::{Doc, Node, Pattern};
+use ast_grep_language::{LanguageExt, SupportLang};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use std::collections::HashSet;
@@ -331,7 +331,12 @@ fn collect_error_nodes<'r, D: Doc>(node: Node<'r, D>, out: &mut Vec<(usize, usiz
     }
 }
 
-fn has_token_with_prefix(line: &str, prefix: &str, min_tail_len: usize, uppercase_alnum_only: bool) -> bool {
+fn has_token_with_prefix(
+    line: &str,
+    prefix: &str,
+    min_tail_len: usize,
+    uppercase_alnum_only: bool,
+) -> bool {
     let mut search_from = 0;
     while let Some(idx) = line[search_from..].find(prefix) {
         let start = search_from + idx + prefix.len();
@@ -431,7 +436,12 @@ fn scan_source(
             }
             let start_pos = m.start_pos();
             let line_idx = start_pos.line();
-            if src.lines().nth(line_idx).unwrap_or("").contains("guardrails-ignore") {
+            if src
+                .lines()
+                .nth(line_idx)
+                .unwrap_or("")
+                .contains("guardrails-ignore")
+            {
                 continue;
             }
             findings.push(Finding {
@@ -470,7 +480,9 @@ fn scan_source(
         let trimmed = line.trim();
         let is_comment = trimmed.starts_with("//") || trimmed.starts_with('#');
         if is_comment
-            && (trimmed.contains("TODO:") || trimmed.contains("FIXME:") || trimmed.contains("PLACEHOLDER"))
+            && (trimmed.contains("TODO:")
+                || trimmed.contains("FIXME:")
+                || trimmed.contains("PLACEHOLDER"))
         {
             findings.push(Finding {
                 rule_id: "GR005-AI-COMMENT-TODO".to_string(),
@@ -480,7 +492,9 @@ fn scan_source(
                 file: rel.to_string(),
                 start_line: idx + 1,
                 start_col: 1,
-                remediation: Some("Resolve placeholder or convert into a tracked issue.".to_string()),
+                remediation: Some(
+                    "Resolve placeholder or convert into a tracked issue.".to_string(),
+                ),
             });
         }
     }
@@ -553,7 +567,9 @@ mod tests {
             &mut findings,
         );
         assert!(
-            findings.iter().any(|f| f.rule_id == "GR000-SYNTAX-ERROR-TS" && f.start_line == 1),
+            findings
+                .iter()
+                .any(|f| f.rule_id == "GR000-SYNTAX-ERROR-TS" && f.start_line == 1),
             "Expected GR000-SYNTAX-ERROR-TS at line 1, got: {findings:?}"
         );
     }
@@ -570,7 +586,9 @@ mod tests {
             &mut findings,
         );
         assert!(
-            !findings.iter().any(|f| f.rule_id.starts_with("GR000-SYNTAX-ERROR")),
+            !findings
+                .iter()
+                .any(|f| f.rule_id.starts_with("GR000-SYNTAX-ERROR")),
             "Unexpected syntax error on valid TSX: {findings:?}"
         );
     }
@@ -579,23 +597,77 @@ mod tests {
     fn flags_universal_security_and_rust_unwrap() {
         let ts_src = "const res = eval(userInput);\nconst key = \"sk_live_1234567890abcdef\";\n";
         let mut ts_findings = Vec::new();
-        scan_source(Lang::TypeScript, SupportLang::TypeScript, "app.ts", ts_src, &mut ts_findings);
-        assert!(ts_findings.iter().any(|f| f.rule_id == "GR006-UNSAFE-EVAL-TS"));
-        assert!(ts_findings.iter().any(|f| f.rule_id == "GR006-HARDCODED-SECRET"));
+        scan_source(
+            Lang::TypeScript,
+            SupportLang::TypeScript,
+            "app.ts",
+            ts_src,
+            &mut ts_findings,
+        );
+        assert!(ts_findings
+            .iter()
+            .any(|f| f.rule_id == "GR006-UNSAFE-EVAL-TS"));
+        assert!(ts_findings
+            .iter()
+            .any(|f| f.rule_id == "GR006-HARDCODED-SECRET"));
 
         let py_src = "import subprocess\nsubprocess.run(cmd, shell=True)\n";
         let mut py_findings = Vec::new();
-        scan_source(Lang::Python, SupportLang::Python, "runner.py", py_src, &mut py_findings);
-        assert!(py_findings.iter().any(|f| f.rule_id == "GR006-SHELL-INJECTION-PY"));
+        scan_source(
+            Lang::Python,
+            SupportLang::Python,
+            "runner.py",
+            py_src,
+            &mut py_findings,
+        );
+        assert!(py_findings
+            .iter()
+            .any(|f| f.rule_id == "GR006-SHELL-INJECTION-PY"));
 
         let rs_src = "fn prod() -> usize { \"1\".parse::<usize>().unwrap() }\n#[cfg(test)]\nmod tests {\n  #[test]\n  fn ok() { \"1\".parse::<usize>().unwrap(); }\n}\n";
         let mut rs_findings = Vec::new();
-        scan_source(Lang::Rust, SupportLang::Rust, "src/lib.rs", rs_src, &mut rs_findings);
+        scan_source(
+            Lang::Rust,
+            SupportLang::Rust,
+            "src/lib.rs",
+            rs_src,
+            &mut rs_findings,
+        );
         let unwrap_lines: Vec<usize> = rs_findings
             .iter()
             .filter(|f| f.rule_id == "GR007-PANIC-UNWRAP-RUST")
             .map(|f| f.start_line)
             .collect();
         assert_eq!(unwrap_lines, vec![1]);
+    }
+
+    #[test]
+    fn valid_rust_raw_identifier_borrow_emits_no_syntax_error() {
+        let src = r#"
+pub fn f(raw: &[u8]) -> &[u8] { &raw[0..4] }
+
+pub fn parse_frame(raw: &[u8]) -> Option<usize> {
+    if raw.len() < 40 || &raw[0..4] != b"MAGI" {
+        return None;
+    }
+    let cid_bytes = &raw[8..40];
+    let _val: usize = serde_json::from_slice(&raw).ok()?;
+    Some(cid_bytes.len())
+}
+"#;
+        let mut findings = Vec::new();
+        scan_source(
+            Lang::Rust,
+            SupportLang::Rust,
+            "src/frame.rs",
+            src,
+            &mut findings,
+        );
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.rule_id.starts_with("GR000-SYNTAX-ERROR")),
+            "Unexpected syntax error on valid Rust `&raw` expressions: {findings:?}"
+        );
     }
 }
