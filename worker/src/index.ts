@@ -6,6 +6,8 @@ interface Env {
   FROM_EMAIL?: string;
 }
 
+const RELEASES_URL = "https://github.com/oceans-niagara/guardrails/releases/latest";
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -45,7 +47,7 @@ export default {
       const tier = await resolveTier(session, env.STRIPE_SECRET_KEY);
       const license = await signLicense({ org, tier, expires_unix: 0 }, env.ED25519_JWK);
 
-      return jsonResponse({ ok: true, tier, holder: org, license }, 200);
+      return jsonResponse({ ok: true, tier, holder: org, license, releases_url: RELEASES_URL }, 200);
     }
 
     // 2. Stripe Webhook (/webhook)
@@ -145,14 +147,40 @@ async function sendLicenseEmail(
       <div style="background:#f7f7f7;border:1px solid #111;border-radius:5px;padding:12px 14px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;word-break:break-all;margin:16px 0;">
         ${escapeHtml(licenseKey)}
       </div>
-      <h3 style="font-size:15px;margin-bottom:6px;">Quickstart</h3>
-      <pre style="background:#f7f7f7;border:1px solid #e5e5e5;border-radius:5px;padding:12px 14px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;overflow-x:auto;"># macOS / Linux
-export GUARDRAILS_LICENSE_KEY="${escapeHtml(licenseKey)}"
-guardrails license-check
 
-# Windows (PowerShell)
+      <h3 style="font-size:15px;margin-bottom:6px;">1. Download the Prebuilt Binary (No Rust Required)</h3>
+      <p style="margin-top:0;font-size:14px;color:#333;">
+        Download the standalone executable for your OS from
+        <a href="${RELEASES_URL}" style="color:#111;font-weight:600;">GitHub Releases</a>
+        and place it in your project folder (or on your <code>PATH</code>):
+      </p>
+      <ul style="font-size:13px;color:#333;padding-left:20px;margin-top:4px;">
+        <li><strong>Windows (x86_64):</strong> <code>guardrails-windows-x86_64.exe</code></li>
+        <li><strong>macOS (Apple Silicon):</strong> <code>guardrails-macos-arm64</code></li>
+        <li><strong>macOS (Intel):</strong> <code>guardrails-macos-x86_64</code></li>
+        <li><strong>Linux (x86_64):</strong> <code>guardrails-linux-x86_64</code></li>
+      </ul>
+      <p style="font-size:12px;color:#666;margin-top:4px;">
+        Prefer building from source? Run <code>cargo install --git https://github.com/oceans-niagara/guardrails</code>.
+      </p>
+
+      <h3 style="font-size:15px;margin-bottom:6px;">2. Verify Offline &amp; Initialize Your Project</h3>
+      <pre style="background:#f7f7f7;border:1px solid #e5e5e5;border-radius:5px;padding:12px 14px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;overflow-x:auto;"># Windows (PowerShell — inside your project folder)
 $env:GUARDRAILS_LICENSE_KEY="${escapeHtml(licenseKey)}"
-guardrails license-check</pre>
+.\\guardrails-windows-x86_64.exe license-check
+.\\guardrails-windows-x86_64.exe init
+.\\guardrails-windows-x86_64.exe check
+
+# macOS / Linux (replace binary name for your OS/arch)
+chmod +x ./guardrails-macos-arm64
+export GUARDRAILS_LICENSE_KEY="${escapeHtml(licenseKey)}"
+./guardrails-macos-arm64 license-check
+./guardrails-macos-arm64 init
+./guardrails-macos-arm64 check</pre>
+      <p style="font-size:12px;color:#666;margin-top:6px;">
+        Tip: Rename the binary to <code>guardrails</code> (or <code>guardrails.exe</code>) on your <code>PATH</code> to run <code>guardrails</code> from any folder.
+      </p>
+
       <p style="font-size:13px;color:#666;margin-top:24px;border-top:1px solid #e5e5e5;padding-top:12px;">
         Oceans Niagara, LLC &bull; Need help? Reply to this email or contact <a href="mailto:connect@oceansniagara.com" style="color:#111;">connect@oceansniagara.com</a>
       </p>
@@ -166,13 +194,30 @@ guardrails license-check</pre>
     "Your offline Ed25519 license key:",
     licenseKey,
     "",
-    "Quickstart (macOS / Linux):",
-    `  export GUARDRAILS_LICENSE_KEY="${licenseKey}"`,
-    "  guardrails license-check",
+    "1. Download the Prebuilt Binary (No Rust Required):",
+    `   ${RELEASES_URL}`,
+    "   - Windows (x86_64):        guardrails-windows-x86_64.exe",
+    "   - macOS (Apple Silicon):   guardrails-macos-arm64",
+    "   - macOS (Intel):           guardrails-macos-x86_64",
+    "   - Linux (x86_64):          guardrails-linux-x86_64",
+    "   (Or build from source: cargo install --git https://github.com/oceans-niagara/guardrails)",
     "",
-    "Quickstart (Windows PowerShell):",
+    "2. Verify Offline & Initialize Your Project:",
+    "",
+    "# Windows (PowerShell — from your project folder):",
     `  $env:GUARDRAILS_LICENSE_KEY="${licenseKey}"`,
-    "  guardrails license-check",
+    "  .\\guardrails-windows-x86_64.exe license-check",
+    "  .\\guardrails-windows-x86_64.exe init",
+    "  .\\guardrails-windows-x86_64.exe check",
+    "",
+    "# macOS / Linux (use the binary matching your OS/arch):",
+    "  chmod +x ./guardrails-macos-arm64",
+    `  export GUARDRAILS_LICENSE_KEY="${licenseKey}"`,
+    "  ./guardrails-macos-arm64 license-check",
+    "  ./guardrails-macos-arm64 init",
+    "  ./guardrails-macos-arm64 check",
+    "",
+    "Tip: Rename the binary to guardrails (or guardrails.exe) on your PATH to run it from anywhere.",
     "",
     "Questions? Contact connect@oceansniagara.com",
   ].join("\n");

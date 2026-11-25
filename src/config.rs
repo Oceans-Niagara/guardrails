@@ -10,6 +10,8 @@ pub struct GuardrailsConfig {
     pub gate: GateConfig,
     pub resilience: ResilienceConfig,
     pub sync: SyncConfig,
+    pub rules: RulesConfig,
+    pub agents: AgentsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +53,18 @@ pub struct ResilienceConfig {
 pub struct SyncConfig {
     pub agents_md: bool,
     pub mcp_json: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RulesConfig {
+    pub disabled: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentsConfig {
+    pub custom_rules: Vec<String>,
 }
 
 impl Default for ProjectConfig {
@@ -123,6 +137,17 @@ impl GuardrailsConfig {
         let cfg: Self = toml::from_str(&raw)?;
         Ok(cfg)
     }
+
+    pub fn is_rule_enabled(&self, rule_id: &str) -> bool {
+        let upper = rule_id.to_ascii_uppercase();
+        if upper == "GR000" || upper.starts_with("GR000-") {
+            return true;
+        }
+        !self.rules.disabled.iter().any(|entry| {
+            let pat = entry.trim().to_ascii_uppercase();
+            !pat.is_empty() && (upper == pat || upper.starts_with(&format!("{pat}-")))
+        })
+    }
 }
 
 pub fn default_toml_template(project_name: &str) -> String {
@@ -140,6 +165,14 @@ rust = true
 typescript = true
 python = true
 
+[rules]
+# Disable built-in rules by ID or prefix (e.g. for non-FinTech / CLI projects):
+# disabled = ["GR001", "GR003"]
+
+[agents]
+# Append project-specific imperative rules to AGENTS.md:
+# custom_rules = ["Validate all CLI flags and exit non-zero on invalid input."]
+
 [resilience]
 upstream = "127.0.0.1:8080"
 seed = 42
@@ -154,4 +187,22 @@ agents_md = true
 mcp_json = true
 "#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rule_prefix_disabling_works_and_preserves_syntax_errors() {
+        let mut cfg = GuardrailsConfig::default();
+        cfg.rules.disabled = vec!["gr001".to_string(), "GR003-IDEMPOTENCY-TS".to_string()];
+
+        assert!(!cfg.is_rule_enabled("GR001-FLOAT-MONEY-TS"));
+        assert!(!cfg.is_rule_enabled("GR001-FLOAT-MONEY-RUST"));
+        assert!(!cfg.is_rule_enabled("GR003-IDEMPOTENCY-TS"));
+        assert!(cfg.is_rule_enabled("GR003-IDEMPOTENCY-PY"));
+        assert!(cfg.is_rule_enabled("GR002-MISSING-TIMEOUT-TS"));
+        assert!(cfg.is_rule_enabled("GR000-SYNTAX-ERROR-TS"));
+    }
 }

@@ -47,16 +47,24 @@
       <div class="actions">
         <a class="btn btn-solid" href="#quickstart">Install &amp; Quickstart</a>
         <a class="btn" href="#pricing">Get Pro License ($19.99)</a>
-        <a class="btn" href="https://github.com">Source on GitHub</a>
+        <a class="btn" href="https://github.com/oceans-niagara/guardrails/releases/latest">Download Binaries</a>
       </div>
     </section>
 
     <section id="quickstart">
       <h2>Install &amp; Run Locally</h2>
-      <pre>cargo install --git https://github.com/oceans-niagara/guardrails
+      <p class="muted" style="margin-bottom:10px;">
+        Download a prebuilt binary from <a href="https://github.com/oceans-niagara/guardrails/releases/latest">GitHub Releases</a> (no Rust toolchain required) or install from source with Cargo:
+      </p>
+      <pre># Prebuilt binaries (Windows / macOS arm64 &amp; x64 / Linux):
+# https://github.com/oceans-niagara/guardrails/releases/latest
+#   Windows: .\guardrails-windows-x86_64.exe init &amp;&amp; .\guardrails-windows-x86_64.exe check
+#   macOS:   chmod +x ./guardrails-macos-arm64 &amp;&amp; ./guardrails-macos-arm64 init &amp;&amp; ./guardrails-macos-arm64 check
 
-guardrails check --config guardrails.toml --format sarif
-guardrails mcp</pre>
+# Or build from source:
+cargo install --git https://github.com/oceans-niagara/guardrails
+guardrails init
+guardrails check --config guardrails.toml --format sarif</pre>
     </section>
 
     <section id="pricing">
@@ -121,9 +129,21 @@ guardrails mcp</pre>
           statusEl.textContent = `License Ready — Guardrails ${String(data.tier || "pro").toUpperCase()}`;
           metaEl.textContent = `Issued to ${data.holder || "customer"} • Perpetual offline license`;
           document.getElementById("claim-token").textContent = data.license;
+          const releasesUrl = data.releases_url || "https://github.com/oceans-niagara/guardrails/releases/latest";
           document.getElementById("claim-activate").textContent =
-            `# macOS / Linux:\nexport GUARDRAILS_LICENSE_KEY="${data.license}"\nguardrails license-check\n\n` +
-            `# Windows (PowerShell):\n$env:GUARDRAILS_LICENSE_KEY="${data.license}"\nguardrails license-check`;
+            `# 1. Download a prebuilt binary (no Rust required):\n#    ${releasesUrl}\n` +
+            `#    Windows: guardrails-windows-x86_64.exe | macOS: guardrails-macos-arm64 / -x86_64 | Linux: guardrails-linux-x86_64\n\n` +
+            `# 2. Windows (PowerShell — from your project folder):\n` +
+            `$env:GUARDRAILS_LICENSE_KEY="${data.license}"\n` +
+            `.\\guardrails-windows-x86_64.exe license-check\n` +
+            `.\\guardrails-windows-x86_64.exe init\n` +
+            `.\\guardrails-windows-x86_64.exe check\n\n` +
+            `# 2. macOS / Linux (replace binary name for your OS/arch):\n` +
+            `chmod +x ./guardrails-macos-arm64\n` +
+            `export GUARDRAILS_LICENSE_KEY="${data.license}"\n` +
+            `./guardrails-macos-arm64 license-check\n` +
+            `./guardrails-macos-arm64 init\n` +
+            `./guardrails-macos-arm64 check`;
 
           document.getElementById("copy-btn").addEventListener("click", async () => {
             await navigator.clipboard.writeText(data.license);

@@ -1,8 +1,9 @@
-use ast_grep_core::{Language, Pattern};
+use ast_grep_core::{Doc, Language, Node, Pattern};
 use crate::sarif::{Finding, Severity};
 use ast_grep_language::SupportLang;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
+use std::collections::HashSet;
 use std::path::Path;
 
 #[derive(Clone, Copy)]
@@ -10,6 +11,16 @@ pub enum Lang {
     Rust,
     TypeScript,
     Python,
+}
+
+impl Lang {
+    fn suffix(self) -> &'static str {
+        match self {
+            Lang::Rust => "RUST",
+            Lang::TypeScript => "TS",
+            Lang::Python => "PY",
+        }
+    }
 }
 
 struct EmbeddedRule {
@@ -233,6 +244,112 @@ fn detect_lang(path: &Path) -> Option<(Lang, SupportLang)> {
     }
 }
 
+fn collect_error_nodes<'r, D: Doc>(node: Node<'r, D>, out: &mut Vec<(usize, usize)>) {
+    if node.is_error() {
+        let pos = node.start_pos();
+        out.push((pos.line() + 1, pos.column(&node) + 1));
+        return;
+    }
+    for child in node.children() {
+        collect_error_nodes(child, out);
+    }
+}
+
+fn scan_source(
+    lang: Lang,
+    sg_lang: SupportLang,
+    rel: &str,
+    src: &str,
+    findings: &mut Vec<Finding>,
+) {
+    let root_ast = sg_lang.ast_grep(src);
+
+    // 0. Syntax / parse errors (e.g. stray markdown fences or truncated LLM output)
+    let mut error_locs = Vec::new();
+    collect_error_nodes(root_ast.root(), &mut error_locs);
+    let mut seen_lines = HashSet::new();
+    for (line, col) in error_locs {
+        if !seen_lines.insert(line) {
+            continue;
+        }
+        findings.push(Finding {
+            rule_id: format!("GR000-SYNTAX-ERROR-{}", lang.suffix()),
+            tool: "guardrails-ast".to_string(),
+            severity: Severity::Error,
+            message: "Syntax/parse error detected; file may contain invalid syntax or stray markdown fences (```)."
+                .to_string(),
+            file: rel.to_string(),
+            start_line: line,
+            start_col: col,
+            remediation: Some(
+                "Fix the syntax error or remove stray markdown code fences before continuing."
+                    .to_string(),
+            ),
+        });
+    }
+
+    // AST structural rules
+    for rule in RULES
+        .iter()
+        .filter(|r| std::mem::discriminant(&r.lang) == std::mem::discriminant(&lang))
+    {
+        let pat = match Pattern::try_new(rule.pattern, sg_lang) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("Skipping invalid pattern {}: {e:?}", rule.id);
+                continue;
+            }
+        };
+        for m in root_ast.root().find_all(pat) {
+            let text = m.text();
+            let range = m.range();
+            if let Some(pred) = rule.predicate {
+                if !pred(&text, src, range.start) {
+                    continue;
+                }
+            }
+            let start_pos = m.start_pos();
+            let line_idx = start_pos.line();
+            if src.lines().nth(line_idx).unwrap_or("").contains("guardrails-ignore") {
+                continue;
+            }
+            findings.push(Finding {
+                rule_id: rule.id.to_string(),
+                tool: "guardrails-ast".to_string(),
+                severity: rule.severity.clone(),
+                message: rule.message.to_string(),
+                file: rel.to_string(),
+                start_line: line_idx + 1,
+                start_col: start_pos.column(m.get_node()) + 1,
+                remediation: Some(rule.remediation.to_string()),
+            });
+        }
+    }
+
+    // Line-level AI placeholder comment check
+    for (idx, line) in src.lines().enumerate() {
+        if line.contains("guardrails-ignore") {
+            continue;
+        }
+        let trimmed = line.trim();
+        let is_comment = trimmed.starts_with("//") || trimmed.starts_with('#');
+        if is_comment
+            && (trimmed.contains("TODO:") || trimmed.contains("FIXME:") || trimmed.contains("PLACEHOLDER"))
+        {
+            findings.push(Finding {
+                rule_id: "GR005-AI-COMMENT-TODO".to_string(),
+                tool: "guardrails-ast".to_string(),
+                severity: Severity::Warning,
+                message: "Unresolved TODO/FIXME/PLACEHOLDER comment left in code".to_string(),
+                file: rel.to_string(),
+                start_line: idx + 1,
+                start_col: 1,
+                remediation: Some("Resolve placeholder or convert into a tracked issue.".to_string()),
+            });
+        }
+    }
+}
+
 pub fn scan_workspace(root: &Path, exclude: &[String]) -> anyhow::Result<Vec<Finding>> {
     let excludes = build_exclude_set(exclude)?;
     let mut findings = Vec::new();
@@ -260,67 +377,7 @@ pub fn scan_workspace(root: &Path, exclude: &[String]) -> anyhow::Result<Vec<Fin
             continue;
         };
 
-        // AST structural rules
-        let root_ast = sg_lang.ast_grep(&src);
-        for rule in RULES
-            .iter()
-            .filter(|r| std::mem::discriminant(&r.lang) == std::mem::discriminant(&lang))
-        {
-            let pat = match Pattern::try_new(rule.pattern, sg_lang) {
-                Ok(p) => p,
-                Err(e) => {
-                    tracing::warn!("Skipping invalid pattern {}: {e:?}", rule.id);
-                    continue;
-                }
-        };
-        for m in root_ast.root().find_all(pat) {
-                let text = m.text();
-                let range = m.range();
-                if let Some(pred) = rule.predicate {
-                    if !pred(&text, &src, range.start) {
-                        continue;
-                    }
-                }
-                let start_pos = m.start_pos();
-                let line_idx = start_pos.line();
-                if src.lines().nth(line_idx).unwrap_or("").contains("guardrails-ignore") {
-                    continue;
-                }
-                findings.push(Finding {
-                    rule_id: rule.id.to_string(),
-                    tool: "guardrails-ast".to_string(),
-                    severity: rule.severity.clone(),
-                    message: rule.message.to_string(),
-                    file: rel.clone(),
-                    start_line: line_idx + 1,
-                    start_col: start_pos.column(m.get_node()) + 1,
-                    remediation: Some(rule.remediation.to_string()),
-                });
-            }
-        }
-
-        // Line-level AI placeholder comment check (skip ast_rules.rs itself)
-        for (idx, line) in src.lines().enumerate() {
-            if line.contains("guardrails-ignore") {
-                continue;
-            }
-            let trimmed = line.trim();
-            let is_comment = trimmed.starts_with("//") || trimmed.starts_with('#');
-            if is_comment
-                && (trimmed.contains("TODO:") || trimmed.contains("FIXME:") || trimmed.contains("PLACEHOLDER"))
-            {
-                findings.push(Finding {
-                    rule_id: "GR005-AI-COMMENT-TODO".to_string(),
-                    tool: "guardrails-ast".to_string(),
-                    severity: Severity::Warning,
-                    message: "Unresolved TODO/FIXME/PLACEHOLDER comment left in code".to_string(),
-                    file: rel.clone(),
-                    start_line: idx + 1,
-                    start_col: 1,
-                    remediation: Some("Resolve placeholder or convert into a tracked issue.".to_string()),
-                });
-            }
-        }
+        scan_source(lang, sg_lang, &rel, &src, &mut findings);
     }
     Ok(findings)
 }
@@ -344,5 +401,39 @@ mod tests {
                 rule.pattern
             );
         }
+    }
+
+    #[test]
+    fn flags_stray_markdown_fence_as_syntax_error() {
+        let src = "```typescript\nasync function chargeCustomer(amount: number, cardToken: string) {\n    const priceCents: number = 1999;\n    return { amount: priceCents, cardToken };\n}\n";
+        let mut findings = Vec::new();
+        scan_source(
+            Lang::TypeScript,
+            SupportLang::TypeScript,
+            "payment_client.ts",
+            src,
+            &mut findings,
+        );
+        assert!(
+            findings.iter().any(|f| f.rule_id == "GR000-SYNTAX-ERROR-TS" && f.start_line == 1),
+            "Expected GR000-SYNTAX-ERROR-TS at line 1, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn valid_typescript_emits_no_syntax_error() {
+        let src = "async function ok(cardToken: string) {\n    const priceCents: number = 1999;\n    return { priceCents, cardToken };\n}\n";
+        let mut findings = Vec::new();
+        scan_source(
+            Lang::TypeScript,
+            SupportLang::TypeScript,
+            "ok.ts",
+            src,
+            &mut findings,
+        );
+        assert!(
+            !findings.iter().any(|f| f.rule_id.starts_with("GR000-SYNTAX-ERROR")),
+            "Unexpected syntax error on valid TS: {findings:?}"
+        );
     }
 }

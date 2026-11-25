@@ -65,6 +65,8 @@ pub async fn run_mcp_stdio(workspace: PathBuf) -> anyhow::Result<()> {
                                 .unwrap_or_default(),
                         );
 
+                        findings.retain(|f| cfg.is_rule_enabled(&f.rule_id));
+
                         let mut seen = std::collections::HashSet::new();
                         findings.retain(|f| {
                             seen.insert((

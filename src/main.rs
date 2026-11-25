@@ -58,7 +58,10 @@ enum Commands {
         force: bool,
     },
     /// Sync AGENTS.md and .mcp.json from guardrails.toml
-    Sync,
+    Sync {
+        #[arg(long)]
+        force: bool,
+    },
     /// Run embedded AST rules and unified lint/type gate
     Check {
         #[arg(long, value_enum, default_value = "json")]
@@ -124,13 +127,14 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 .and_then(|n| n.to_str())
                 .unwrap_or("app");
             std::fs::write(&cfg_path, config::default_toml_template(name))?;
-            sync::sync_all(&workspace, cfg.sync.mcp_json, cfg.sync.agents_md)?;
+            let init_cfg = GuardrailsConfig::load(&workspace, Some(&cfg_path))?;
+            sync::sync_all(&workspace, &init_cfg, force)?;
             eprintln!("Initialized {} and synced agent configs.", cfg_path.display());
             Ok(ExitCode::SUCCESS)
         }
 
-        Commands::Sync => {
-            sync::sync_all(&workspace, cfg.sync.mcp_json, cfg.sync.agents_md)?;
+        Commands::Sync { force } => {
+            sync::sync_all(&workspace, &cfg, force)?;
             eprintln!("Synced .mcp.json and AGENTS.md.");
             Ok(ExitCode::SUCCESS)
         }
@@ -144,6 +148,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             if !ast_only {
                 findings.extend(gate::run_unified_gate(&workspace, &cfg.gate).await?);
             }
+            findings.retain(|f| cfg.is_rule_enabled(&f.rule_id));
 
             // Deduplicate identical diagnostics (e.g. clippy bin + test passes)
             let mut seen = std::collections::HashSet::new();
