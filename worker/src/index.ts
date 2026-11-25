@@ -7,7 +7,7 @@ interface Env {
 }
 
 const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "https://oceansniagara.com",
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
@@ -28,7 +28,7 @@ export default {
       }
 
       const resp = await fetch(
-        `https://stripe.com{encodeURIComponent(sessionId)}`,
+        `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`,
         { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } }
       );
       if (!resp.ok) {
@@ -102,7 +102,7 @@ async function resolveTier(session: Record<string, any>, stripeKey: string): Pro
     return String(session.metadata.tier);
   }
   const resp = await fetch(
-    `https://stripe.com{encodeURIComponent(session.id)}/line_items?expand[]=data.price.product`,
+    `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(session.id)}/line_items?expand[]=data.price.product`,
     {
       headers: { Authorization: `Bearer ${stripeKey}` },
       signal: AbortSignal.timeout(10_000),
@@ -177,7 +177,7 @@ guardrails license-check</pre>
     "Questions? Contact connect@oceansniagara.com",
   ].join("\n");
 
-  const resp = await fetch("https://resend.com", {
+  const resp = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.RESEND_API_KEY}`,
