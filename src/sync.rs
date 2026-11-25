@@ -165,6 +165,20 @@ pub fn render_agents_managed_block(cfg: &GuardrailsConfig) -> String {
         (false, false) => {}
     }
 
+    if cfg.is_rule_enabled("GR006") {
+        bullets.push(
+            "- Never hardcode secrets/keys or use unsafe dynamic execution (`eval` / `shell=True`)."
+                .to_string(),
+        );
+    }
+
+    if cfg.gate.rust && cfg.is_rule_enabled("GR007") {
+        bullets.push(
+            "- Avoid `.unwrap()` in production Rust code; propagate with `?` or handle explicitly."
+                .to_string(),
+        );
+    }
+
     for custom in &cfg.agents.custom_rules {
         let trimmed = custom.trim().trim_start_matches('-').trim();
         if !trimmed.is_empty() {

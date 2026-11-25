@@ -56,6 +56,8 @@ enum Commands {
     Init {
         #[arg(long)]
         force: bool,
+        #[arg(long, value_enum)]
+        profile: Option<config::Profile>,
     },
     /// Sync AGENTS.md and .mcp.json from guardrails.toml
     Sync {
@@ -117,7 +119,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     let cfg = GuardrailsConfig::load(&workspace, cli.config.as_deref())?;
 
     match cli.command {
-        Commands::Init { force } => {
+        Commands::Init { force, profile } => {
             let cfg_path = workspace.join("guardrails.toml");
             if cfg_path.exists() && !force {
                 anyhow::bail!("{} already exists (pass --force to overwrite)", cfg_path.display());
@@ -126,10 +128,19 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("app");
-            std::fs::write(&cfg_path, config::default_toml_template(name))?;
+            let detected = config::detect_workspace(&workspace);
+            let chosen_profile = profile.unwrap_or(detected.profile);
+            std::fs::write(&cfg_path, config::render_toml_for_init(name, &detected, profile))?;
             let init_cfg = GuardrailsConfig::load(&workspace, Some(&cfg_path))?;
             sync::sync_all(&workspace, &init_cfg, force)?;
-            eprintln!("Initialized {} and synced agent configs.", cfg_path.display());
+            eprintln!(
+                "Initialized {} (profile={}, rust={}, ts={}, py={}) and synced agent configs.",
+                cfg_path.display(),
+                chosen_profile.as_str(),
+                init_cfg.gate.rust,
+                init_cfg.gate.typescript,
+                init_cfg.gate.python
+            );
             Ok(ExitCode::SUCCESS)
         }
 
